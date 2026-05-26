@@ -24,7 +24,6 @@ const redis = new Redis({ url: UPSTASH_REDIS_REST_URL, token: UPSTASH_REDIS_REST
 const TOMORROW_IMAGE_URL = "https://raw.githubusercontent.com/Baskerville42/outage-data-ua/main/images/kyiv-region/gpv-all-tomorrow.png";
 const DATA_JSON_URL = "https://raw.githubusercontent.com/Baskerville42/outage-data-ua/main/data/kyiv-region.json";
 
-// Шлях до твого шаблону з текстом:
 const TEMPLATE_IMAGE_PATH = path.join(__dirname, "images", "empty_data_should_add_text.jpg");
 
 /* ================= HELPERS ================= */
@@ -41,7 +40,6 @@ function getUkranianDateText(timestamp) {
     const dayNum = date.getDate();
     const monthName = months[date.getMonth()];
 
-    // На картинку піде чисто: "27 травня"
     return `${dayNum} ${monthName}`;
   } catch {
     return "на завтра";
@@ -58,7 +56,6 @@ function formatDateFromTimestamp(timestamp) {
   }
 }
 
-// Форматування системного часу з ISO (UTC) у красивий Київський формат "ДД.ММ.РРРР ГГ:ХХ"
 function formatLastUpdated(isoString) {
   try {
     const date = new Date(isoString);
@@ -77,11 +74,10 @@ function formatLastUpdated(isoString) {
   }
 }
 
-// Перевірка, чи є дата з рядка "ДД.ММ.РРРР ГГ:ХХ" сьогоднішнім днем (за Київським часом)
+// Перевірка, чи є дата з рядка ДД.ММ.РРРР ГГ:ХХ сьогоднішнім днем 
 function isUpdateFromToday(updateStr) {
   if (!updateStr) return false;
   try {
-    // Витягуємо "ДД.ММ.РРРР" з початку рядка
     const datePart = updateStr.split(" ")[0]; 
     
     // Отримуємо поточну дату в Києві у форматі ДД.ММ.РРРР
@@ -103,14 +99,14 @@ async function generateEmptyDataImageWithText(dateText, fullUpdateTime) {
   const canvas = createCanvas(image.width, image.height);
   const ctx = canvas.getContext("2d");
 
-  // 3. Малюємо фон (твій шаблон)
+  // 3. Малюємо фон 
   ctx.drawImage(image, 0, 0, image.width, image.height);
 
   // 4. ЗАГАЛЬНІ НАЛАШТУВАННЯ ВИРІВНЮВАННЯ
   ctx.textAlign = "center"; 
   ctx.textBaseline = "middle";
 
-  // ================= 📅 БЛОК 1: ДАТА (Наприклад: "27 травня") =================
+  // ================= 📅 БЛОК 1: ДАТА =================
   ctx.fillStyle = "#1b2423";                 // 🎨 Твій основний колір дати
   ctx.font = "bold 28px Arial, sans-serif";   // Шрифт дати
   
@@ -119,7 +115,7 @@ async function generateEmptyDataImageWithText(dateText, fullUpdateTime) {
   
   ctx.fillText(dateText, dateX, dateY);
 
-  // ================= 🕒 БЛОК 2: ЧАС ТА ДАТА ОНОВЛЕННЯ (Наприклад: "04.05.2026 10:22") =================
+  // ================= 🕒 БЛОК 2: ЧАС ТА ДАТА ОНОВЛЕННЯ =================
   ctx.fillStyle = "#7a8a88";                 // 🎨 Твій приглушений сірий колір
   ctx.font = "bold 14px Arial, sans-serif";   // Твій розмір шрифту
   
@@ -128,7 +124,6 @@ async function generateEmptyDataImageWithText(dateText, fullUpdateTime) {
   
   ctx.fillText(fullUpdateTime, timeX, timeY);
 
-  // 7. Повертаємо готовий Buffer
   return canvas.toBuffer("image/jpeg");
 }
 
@@ -177,7 +172,7 @@ async function checkSchedule() {
     const logDateText = formatDateFromTimestamp(targetTimestamp);
     const systemUpdateTime = data.lastUpdated ? formatLastUpdated(data.lastUpdated) : formatLastUpdated(new Date().toISOString());
 
-    /* ================= 🟢 КЕЙС 1: ДАНІ ПОРОЖНІ, АЛЕ UPDATE СВІЖИЙ (СЬОГОДНІШНІЙ) -> ОФІЦІЙНА КАРТИНКА ================= */
+    /* ================= 🟢 КЕЙС 1: ДАНІ ПОРОЖНІ, АЛЕ UPDATE СЬОГОДНІШНІЙ -> ОФІЦІЙНА КАРТИНКА ================= */
     if (isEmptyData && isToday) {
       console.log("🎯 Графіків немає, але ДТЕК оновив дані сьогодні! Беремо оригінальну картинку з GitHub...");
 
@@ -203,9 +198,9 @@ async function checkSchedule() {
     if (isEmptyData && !isToday) {
       console.log("⚠️ Графіків немає і ДТЕК спить (дата стара). Генеруємо локальний шаблон з актуальним часом...");
 
-      const ukrDateText = getUkranianDateText(targetTimestamp); // "27 травня"
+      const ukrDateText = getUkranianDateText(targetTimestamp); 
 
-      // Малюємо: Блок 1 (Дата) та Блок 2 (Системний час перевірки)
+      // Малюємо дату та системний час перевірки
       const processedImageBuffer = await generateEmptyDataImageWithText(ukrDateText, systemUpdateTime);
 
       const caption =
@@ -262,12 +257,11 @@ async function checkSchedule() {
 
 /* ================= LOOP ================= */
 
-// Запуск кожну хвилину (60000 мс) для стабільності вашого IP перед GitHub API
+// Запуск кожну хвилину для стабільності роботи перед GitHub API
 setInterval(checkSchedule, 60000); 
 checkSchedule();
 
 /* ================= SERVER ================= */
-
 const app = express();
 app.get("/", (req, res) => res.send("Bot is running 🚀"));
 const PORT = process.env.PORT || 3000;
