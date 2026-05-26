@@ -184,7 +184,6 @@ async function checkSchedule() {
       const caption =
         `⚡️💡 <b>Київщина: графік відключення світла</b>\n` +
         `📆 ${logDateText}\n\n` +
-        `✅ Наразі погодинні відключення не заплановані.\n\n` +
         `🕒 <i>Оновлено: ${rawUpdate}</i>\n\n` +
         `<a href="https://t.me/huyova_bila_tserkva">✅ Хуйова Біла Церква</a>`;
 
@@ -213,7 +212,6 @@ async function checkSchedule() {
         `⚡️💡 <b>Київщина: графік відключення світла</b>\n` +
         `📆 ${logDateText}\n\n` +
         `✅ Наразі погодинні відключення не заплановані.\n\n` +
-        `🕒 <i>Перевірено: ${systemUpdateTime}</i>\n\n` +
         `<a href="https://t.me/huyova_bila_tserkva">✅ Хуйова Біла Церква</a>`;
 
       await bot.sendPhoto(CHAT_ID, processedImageBuffer, {
