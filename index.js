@@ -107,20 +107,20 @@ async function generateEmptyDataImageWithText(dateText, fullUpdateTime) {
   ctx.textBaseline = "middle";
 
   // ================= 📅 БЛОК 1: ДАТА =================
-  ctx.fillStyle = "#1b2423";                 // 🎨 Твій основний колір дати
-  ctx.font = "bold 28px Arial, sans-serif";   // Шрифт дати
+  ctx.fillStyle = "#1b2423";                 
+  ctx.font = "bold 28px Arial, sans-serif";   
   
-  const dateX = 444;                         // Твої координати по Х та Y
+  const dateX = 444;                        
   const dateY = 52; 
   
   ctx.fillText(dateText, dateX, dateY);
 
   // ================= 🕒 БЛОК 2: ЧАС ТА ДАТА ОНОВЛЕННЯ =================
-  ctx.fillStyle = "#7a8a88";                 // 🎨 Твій приглушений сірий колір
-  ctx.font = "bold 14px Arial, sans-serif";   // Твій розмір шрифту
+  ctx.fillStyle = "#7a8a88";                 
+  ctx.font = "bold 14px Arial, sans-serif";   
   
-  const timeX = 494;                         // Твоя координата X
-  const timeY = 102;                         // Твоя координата Y
+  const timeX = 494;                        
+  const timeY = 102;                        
   
   ctx.fillText(fullUpdateTime, timeX, timeY);
 
