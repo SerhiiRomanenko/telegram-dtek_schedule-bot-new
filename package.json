@@ -1,0 +1,23 @@
+{
+  "name": "dtek_test",
+  "version": "1.0.0",
+  "description": "",
+  "main": "index.js",
+  "scripts": {
+    "test": "echo \"Error: no test specified\" && exit 1"
+  },
+  "keywords": [],
+  "author": "",
+  "license": "ISC",
+  "type": "commonjs",
+  "dependencies": {
+    "@upstash/redis": "^1.38.0",
+    "axios": "^1.16.0",
+    "canvas": "^3.2.3",
+    "dotenv": "^17.2.3",
+    "express": "^5.2.1",
+    "node-telegram-bot-api": "^0.67.0",
+    "puppeteer": "^24.34.0",
+    "qs": "^6.15.1"
+  }
+}
