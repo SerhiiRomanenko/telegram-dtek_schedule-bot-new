@@ -42,7 +42,7 @@ function getUkranianDateText(timestamp) {
 
     return `${dayNum} ${monthName}`;
   } catch {
-    return "на завтра";
+    return "на зазначений день";
   }
 }
 
@@ -87,6 +87,13 @@ function isUpdateFromToday(updateStr) {
   } catch {
     return false;
   }
+}
+
+// Функція для визначення поточної години в часовому поясі Києва
+function getKyivHour() {
+  const options = { timeZone: "Europe/Kyiv", hour: "2-digit", hour12: false };
+  const formatter = new Intl.DateTimeFormat("en-US", options);
+  return parseInt(formatter.format(new Date()), 10);
 }
 
 /* ================= ФУНКЦІЯ МАЛЮВАННЯ (ОКРЕМІ КОЛЬОРИ ТА КООРДИНАТИ) ================= */
@@ -167,8 +174,31 @@ async function checkSchedule() {
 
     console.log(`📊 Статус: isEmptyData=${isEmptyData}, rawUpdate="${rawUpdate}", єСьогоднішнім=${isToday}`);
 
-    // Вираховуємо дату на завтра для опису поста
-    const targetTimestamp = data.fact?.today ? (data.fact.today + 86400) : (Math.floor(Date.now() / 1000) + 86400);
+    /* ================= ДИНАМІЧНЕ ВИЗНАЧЕННЯ ЦІЛЬОВОЇ ДАТИ ================= */
+    const currentKyivHour = getKyivHour();
+    let targetTimestamp;
+
+    if (data.fact?.today) {
+      // Якщо в JSON є мітка дня, відштовхуємось від неї
+      if (currentKyivHour < 10) {
+        targetTimestamp = data.fact.today; // До 10:00 — це сьогоднішній день з JSON
+        console.log(`⏰ Час < 10:00 (${currentKyivHour}:00). Беремо графік на СЬОГОДНІ.`);
+      } else {
+        targetTimestamp = data.fact.today + 86400; // Після 10:00 — це наступний день
+        console.log(`⏰ Час >= 10:00 (${currentKyivHour}:00). Беремо графік на ЗАВТРА.`);
+      }
+    } else {
+      // Якщо мітки немає, беремо поточний системний час
+      const nowTimestamp = Math.floor(Date.now() / 1000);
+      if (currentKyivHour < 10) {
+        targetTimestamp = nowTimestamp;
+        console.log(`⏰ Час < 10:00 (${currentKyivHour}:00). Орієнтир: поточна дата.`);
+      } else {
+        targetTimestamp = nowTimestamp + 86400;
+        console.log(`⏰ Час >= 10:00 (${currentKyivHour}:00). Орієнтир: завтрашня дата.`);
+      }
+    }
+
     const logDateText = formatDateFromTimestamp(targetTimestamp);
     const systemUpdateTime = data.lastUpdated ? formatLastUpdated(data.lastUpdated) : formatLastUpdated(new Date().toISOString());
 
@@ -224,17 +254,11 @@ async function checkSchedule() {
     /* ================= 🔴 КЕЙС 3: ГРАФІКИ Є (ЗВИЧАЙНА КАРТИНКА СХЕМИ) ================= */
     console.log("🔥 Знайдено активні графіки відключень! Надсилаємо схему...");
     
-    const timestamps = Object.keys(factData).map(Number).filter((t) => !isNaN(t));
-    let finalLogDate = logDateText;
-    
-    if (timestamps.length) {
-      const newestTimestamp = Math.max(...timestamps);
-      finalLogDate = formatDateFromTimestamp(newestTimestamp);
-    }
-
+    // Замість безумовного пошуку максимального таймстампу з масиву (який міг збити дату),
+    // використовуємо нашу вираховану логічну дату finalLogDate.
     const caption =
       `⚡️💡 <b>Київщина: графік відключення світла</b>\n` +
-      `📆 ${finalLogDate}\n\n` +
+      `📆 ${logDateText}\n\n` +
       `🕒 <i>Оновлено: ${rawUpdate || systemUpdateTime}</i>\n\n` +
       `<a href="https://t.me/huyova_bila_tserkva">✅ Хуйова Біла Церква</a> | <a href="https://t.me/xy_dmin">Прислати новину</a>`;
 
@@ -258,7 +282,7 @@ async function checkSchedule() {
 /* ================= LOOP ================= */
 
 // Запуск кожну хвилину для стабільності роботи перед GitHub API
-setInterval(checkSchedule, 60000); 
+setInterval(checkSchedule, 5000); 
 checkSchedule();
 
 /* ================= SERVER ================= */
