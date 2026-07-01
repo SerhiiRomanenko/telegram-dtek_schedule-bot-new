@@ -14,6 +14,11 @@ const CHAT_ID = process.env.CHAT_ID;
 const UPSTASH_REDIS_REST_URL = process.env.UPSTASH_REDIS_REST_URL;
 const UPSTASH_REDIS_REST_TOKEN = process.env.UPSTASH_REDIS_REST_TOKEN;
 
+if (!BOT_TOKEN || !CHAT_ID) {
+  console.error("❌ Missing BOT_TOKEN or CHAT_ID in .env");
+  process.exit(1);
+}
+
 /* ================= TELEGRAM & REDIS ================= */
 
 const bot = new TelegramBot(BOT_TOKEN, { polling: false });
@@ -23,118 +28,138 @@ const redis = new Redis({ url: UPSTASH_REDIS_REST_URL, token: UPSTASH_REDIS_REST
 
 const TOMORROW_IMAGE_URL = "https://raw.githubusercontent.com/Baskerville42/outage-data-ua/main/images/kyiv-region/gpv-all-tomorrow.png";
 const DATA_JSON_URL = "https://raw.githubusercontent.com/Baskerville42/outage-data-ua/main/data/kyiv-region.json";
-
 const TEMPLATE_IMAGE_PATH = path.join(__dirname, "images", "empty_data_should_add_text.jpg");
+
+/* ================= CONSTANTS ================= */
+
+const POLL_INTERVAL_MS = 30_000;
+const KYIV = "Europe/Kyiv";
 
 /* ================= HELPERS ================= */
 
-function getUkranianDateText(timestamp) {
-  try {
-    const date = new Date(timestamp * 1000);
-    
-    const months = [
-      "січня", "лютого", "березня", "квітня", "травня", "червня",
-      "липня", "серпня", "вересня", "жовтня", "листопада", "грудня"
-    ];
-
-    const dayNum = date.getDate();
-    const monthName = months[date.getMonth()];
-
-    return `${dayNum} ${monthName}`;
-  } catch {
-    return "на зазначений день";
-  }
+function extractKyivDay(unixTs) {
+  const parts = new Intl.DateTimeFormat("en-CA", {
+    timeZone: KYIV,
+    year: "numeric",
+    month: "2-digit",
+    day: "2-digit",
+  }).formatToParts(new Date(unixTs * 1000));
+  const get = (t) => parts.find((p) => p.type === t)?.value;
+  return `${get("year")}-${get("month")}-${get("day")}`;
 }
 
-function formatDateFromTimestamp(timestamp) {
-  try {
-    const date = new Date(timestamp * 1000);
-    const days = ["Неділя", "Понеділок", "Вівторок", "Середа", "Четвер", "П'ятниця", "Субота"];
-    return `${days[date.getDay()]}, ${String(date.getDate()).padStart(2,"0")}.${String(date.getMonth()+1).padStart(2,"0")}.${date.getFullYear()}`;
-  } catch {
-    return "Невідома дата";
-  }
+function formatDayCaption(unixTs) {
+  const date = new Date(unixTs * 1000);
+  const day = String(date.getDate()).padStart(2, "0");
+  const mon = String(date.getMonth() + 1).padStart(2, "0");
+  const year = date.getFullYear();
+  const days = ["Неділя", "Понеділок", "Вівторок", "Середа", "Четвер", "П'ятниця", "Субота"];
+  const weekday = days[date.getDay()];
+  return `${weekday}, ${day}.${mon}.${year}`;
 }
 
-function formatLastUpdated(isoString) {
-  try {
-    const date = new Date(isoString);
-    const options = {
-      timeZone: "Europe/Kyiv",
-      day: "2-digit",
-      month: "2-digit",
-      year: "numeric",
-      hour: "2-digit",
-      minute: "2-digit",
-    };
-    return date.toLocaleString("uk-UA", options).replace(",", "");
-  } catch {
-    const now = new Date();
-    return `${String(now.getDate()).padStart(2,"0")}.${String(now.getMonth()+1).padStart(2,"0")}.${now.getFullYear()} ${String(now.getHours()).padStart(2,"0")}:${String(now.getMinutes()).padStart(2,"0")}`;
-  }
+function formatUpdate(raw) {
+  if (raw && /^\d{2}\.\d{2}\.\d{4} \d{2}:\d{2}$/.test(raw)) return raw;
+  const now = new Date();
+  const day = String(now.getDate()).padStart(2, "0");
+  const mon = String(now.getMonth() + 1).padStart(2, "0");
+  const year = now.getFullYear();
+  const hh = String(now.getHours()).padStart(2, "0");
+  const mm = String(now.getMinutes()).padStart(2, "0");
+  return `${day}.${mon}.${year} ${hh}:${mm}`;
 }
 
-// Перевірка, чи є дата з рядка ДД.ММ.РРРР ГГ:ХХ сьогоднішнім днем 
-function isUpdateFromToday(updateStr) {
-  if (!updateStr) return false;
-  try {
-    const datePart = updateStr.split(" ")[0]; 
-    
-    // Отримуємо поточну дату в Києві у форматі ДД.ММ.РРРР
-    const kyivToday = new Date().toLocaleDateString("uk-UA", { timeZone: "Europe/Kyiv" });
-    
-    return datePart === kyivToday;
-  } catch {
-    return false;
-  }
+function getKyivTimeShort() {
+  const now = new Date();
+  const hh = String(now.getHours()).padStart(2, "0");
+  const mm = String(now.getMinutes()).padStart(2, "0");
+  return `${hh}:${mm}`;
 }
 
-// Функція для визначення поточної години в часовому поясі Києва
-function getKyivHour() {
-  const options = { timeZone: "Europe/Kyiv", hour: "2-digit", hour12: false };
-  const formatter = new Intl.DateTimeFormat("en-US", options);
-  return parseInt(formatter.format(new Date()), 10);
-}
+/* ================= CANVAS ================= */
 
-/* ================= ФУНКЦІЯ МАЛЮВАННЯ (ОКРЕМІ КОЛЬОРИ ТА КООРДИНАТИ) ================= */
-
-async function generateEmptyDataImageWithText(dateText, fullUpdateTime) {
-  // 1. Завантажуємо зображення-шаблон
+async function generateTemplateImage(dateText, timeText) {
   const image = await loadImage(TEMPLATE_IMAGE_PATH);
-
-  // 2. Створюємо canvas точних розмірів шаблону
   const canvas = createCanvas(image.width, image.height);
   const ctx = canvas.getContext("2d");
 
-  // 3. Малюємо фон 
   ctx.drawImage(image, 0, 0, image.width, image.height);
-
-  // 4. ЗАГАЛЬНІ НАЛАШТУВАННЯ ВИРІВНЮВАННЯ
-  ctx.textAlign = "center"; 
+  ctx.textAlign = "center";
   ctx.textBaseline = "middle";
 
-  // ================= 📅 БЛОК 1: ДАТА =================
-  ctx.fillStyle = "#1b2423";                 
-  ctx.font = "bold 28px Arial, sans-serif";   
-  
-  const dateX = 444;                        
-  const dateY = 52; 
-  
-  ctx.fillText(dateText, dateX, dateY);
+  ctx.fillStyle = "#1b2423";
+  ctx.font = "bold 28px Arial, sans-serif";
+  ctx.fillText(dateText, 444, 52);
 
-  // ================= 🕒 БЛОК 2: ЧАС ТА ДАТА ОНОВЛЕННЯ =================
-  ctx.fillStyle = "#7a8a88";                 
-  ctx.font = "bold 14px Arial, sans-serif";   
-  
-  const timeX = 494;                        
-  const timeY = 102;                        
-  
-  ctx.fillText(fullUpdateTime, timeX, timeY);
+  ctx.fillStyle = "#7a8a88";
+  ctx.font = "bold 14px Arial, sans-serif";
+  ctx.fillText(timeText, 494, 102);
 
   return canvas.toBuffer("image/jpeg");
 }
 
-/* ================= MAIN ================= */
+/* ================= CAPTIONS ================= */
+
+function buildCaptionWithData(dayText, updateText, region) {
+  return (
+    `⚡️💡 <b>Київщина: графік відключення світла</b>\n` +
+    `📅 ${dayText}\n\n` +
+    `🔄 <i>Оновлено: ${updateText}</i>\n\n` +
+    `` +
+    `<a href="https://t.me/huyova_bila_tserkva">✅ Хуйова Біла Церква</a> | <a href="https://t.me/xy_dmin">Прислати новину</a>`
+  );
+}
+
+function buildCaptionNoData(dayText, region) {
+  return (
+    `⚡️💡 <b>Київщина: відключення світла</b>\n` +
+    `📅 ${dayText}\n\n` +
+    `✅ Графіків немає — очікуйте оновлення від ДТЕК\n\n` +
+    `` +
+    `<a href="https://t.me/huyova_bila_tserkva">✅ Хуйова Біла Церква</a> | <a href="https://t.me/xy_dmin">Прислати новину</a>`
+  );
+}
+
+/* ================= TELEGRAM ACTIONS ================= */
+
+async function sendPhoto(image, caption, isBuffer) {
+  if (isBuffer) {
+    return bot.sendPhoto(CHAT_ID, image, {
+      caption,
+      parse_mode: "HTML",
+    }, {
+      filename: `schedule_${Date.now()}.jpg`,
+      contentType: "image/jpeg",
+    });
+  }
+  return bot.sendPhoto(CHAT_ID, image, {
+    caption,
+    parse_mode: "HTML",
+  });
+}
+
+async function editPost(msgId, caption, image, isBuffer) {
+  try {
+    await bot.editMessageCaption(msgId, caption, {
+      chat_id: CHAT_ID,
+      parse_mode: "HTML",
+    });
+
+    const media = isBuffer
+      ? image
+      : { type: "photo", media: image };
+
+    await bot.editMessageMedia(msgId, media, { chat_id: CHAT_ID });
+    return true;
+  } catch (err) {
+    if (err.code === "EFATAL" || err.response?.statusCode === 403) {
+      return false;
+    }
+    throw err;
+  }
+}
+
+/* ================= MAIN LOOP ================= */
 
 let isRunning = false;
 
@@ -143,150 +168,91 @@ async function checkSchedule() {
   isRunning = true;
 
   try {
-    console.log(`⏳ Перевірка GitHub (${new Date().toLocaleTimeString()})...`);
-
-    const response = await axios.get(`${DATA_JSON_URL}?t=${Date.now()}`, { timeout: 10000 });
+    const response = await axios.get(`${DATA_JSON_URL}?t=${Date.now()}`, { timeout: 15000 });
     const data = response.data;
 
-    if (!data.meta || !data.meta.contentHash) {
+    if (!data.meta?.contentHash) {
       console.log("⚠️ contentHash відсутній");
       return;
     }
 
     const currentHash = data.meta.contentHash;
-    console.log("📦 HASH:", currentHash);
 
-    const savedHash = await redis.get("dtek_hash");
-    if (savedHash && savedHash === currentHash) {
-      console.log("✅ HASH вже був — нових даних немає");
+    const savedHash = await redis.get("dtek:hash");
+    if (savedHash === currentHash) {
       return;
     }
 
-    /* ================= ПЕРЕВІРКА СТАНУ ДАНИХ ================= */
+    const factToday = data.fact?.today ?? Math.floor(Date.now() / 1000);
+    const currentDay = extractKyivDay(factToday);
+
+    const savedDay = await redis.get("dtek:day");
+    const savedMsgId = await redis.get("dtek:msgId");
+
     const factData = data.fact?.data;
-    const isEmptyData =
-      !factData ||
-      (Array.isArray(factData) && factData.length === 0) ||
-      (typeof factData === "object" && !Array.isArray(factData) && Object.keys(factData).length === 0);
+    const isEmptyData = !factData || Object.keys(factData).length === 0;
 
-    const rawUpdate = data.fact?.update || "";
-    const isToday = isUpdateFromToday(rawUpdate);
+    const updateText = formatUpdate(data.fact?.update);
+    const region = data.regionAffiliation || "Київська обл.";
+    const dayText = formatDayCaption(factToday);
 
-    console.log(`📊 Статус: isEmptyData=${isEmptyData}, rawUpdate="${rawUpdate}", єСьогоднішнім=${isToday}`);
+    const caption = isEmptyData
+      ? buildCaptionNoData(dayText, region)
+      : buildCaptionWithData(dayText, updateText, region);
 
-    /* ================= ДИНАМІЧНЕ ВИЗНАЧЕННЯ ЦІЛЬОВОЇ ДАТИ ================= */
-    const currentKyivHour = getKyivHour();
-    let targetTimestamp;
-
-    if (data.fact?.today) {
-      // Якщо в JSON є мітка дня, відштовхуємось від неї
-      if (currentKyivHour < 10) {
-        targetTimestamp = data.fact.today; // До 10:00 — це сьогоднішній день з JSON
-        console.log(`⏰ Час < 10:00 (${currentKyivHour}:00). Беремо графік на СЬОГОДНІ.`);
-      } else {
-        targetTimestamp = data.fact.today + 86400; // Після 10:00 — це наступний день
-        console.log(`⏰ Час >= 10:00 (${currentKyivHour}:00). Беремо графік на ЗАВТРА.`);
-      }
+    let image, isBuffer = false;
+    if (isEmptyData) {
+      const dateText = dayText.split(", ").pop();
+      image = await generateTemplateImage(dateText, updateText);
+      isBuffer = true;
     } else {
-      // Якщо мітки немає, беремо поточний системний час
-      const nowTimestamp = Math.floor(Date.now() / 1000);
-      if (currentKyivHour < 10) {
-        targetTimestamp = nowTimestamp;
-        console.log(`⏰ Час < 10:00 (${currentKyivHour}:00). Орієнтир: поточна дата.`);
-      } else {
-        targetTimestamp = nowTimestamp + 86400;
-        console.log(`⏰ Час >= 10:00 (${currentKyivHour}:00). Орієнтир: завтрашня дата.`);
+      image = `${TOMORROW_IMAGE_URL}?t=${Date.now()}`;
+    }
+
+    const isNewDay = savedDay !== currentDay || !savedMsgId;
+
+    if (isNewDay) {
+      const msg = await sendPhoto(image, caption, isBuffer);
+      await Promise.all([
+        redis.set("dtek:msgId", String(msg.message_id)),
+        redis.set("dtek:day", currentDay),
+      ]);
+    } else {
+      const ok = await editPost(savedMsgId, caption, image, isBuffer);
+      if (!ok) {
+        await bot.sendMessage(CHAT_ID, `🔄 Графік оновлено станом на ${getKyivTimeShort()}. Актуальна версія нижче.`);
+        const msg = await sendPhoto(image, caption, isBuffer);
+        await redis.set("dtek:msgId", String(msg.message_id));
       }
     }
 
-    const logDateText = formatDateFromTimestamp(targetTimestamp);
-    const systemUpdateTime = data.lastUpdated ? formatLastUpdated(data.lastUpdated) : formatLastUpdated(new Date().toISOString());
-
-    /* ================= 🟢 КЕЙС 1: ДАНІ ПОРОЖНІ, АЛЕ UPDATE СЬОГОДНІШНІЙ -> ОФІЦІЙНА КАРТИНКА ================= */
-    if (isEmptyData && isToday) {
-      console.log("🎯 Графіків немає, але ДТЕК оновив дані сьогодні! Беремо оригінальну картинку з GitHub...");
-
-      const caption =
-        `⚡️💡 <b>Київщина: графік відключення світла</b>\n` +
-        `📆 ${logDateText}\n\n` +
-        `🕒 <i>Оновлено: ${rawUpdate}</i>\n\n` +
-        `<a href="https://t.me/huyova_bila_tserkva">✅ Хуйова Біла Церква</a>`;
-
-      const imageUrl = `${TOMORROW_IMAGE_URL}?t=${Date.now()}`;
-
-      await bot.sendPhoto(CHAT_ID, imageUrl, {
-        caption,
-        parse_mode: "HTML",
-      });
-
-      console.log("✅ Офіційну свіжу картинку відправлено!");
-      await redis.set("dtek_hash", currentHash);
-      return;
-    }
-
-    /* ================= 🟡 КЕЙС 2: ДАНІ ПОРОЖНІ І UPDATE СТАРИЙ -> НАКЛАДАЄМО ТЕКСТ НА ШАБЛОН ================= */
-    if (isEmptyData && !isToday) {
-      console.log("⚠️ Графіків немає і ДТЕК спить (дата стара). Генеруємо локальний шаблон з актуальним часом...");
-
-      const ukrDateText = getUkranianDateText(targetTimestamp); 
-
-      // Малюємо дату та системний час перевірки
-      const processedImageBuffer = await generateEmptyDataImageWithText(ukrDateText, systemUpdateTime);
-
-      const caption =
-        `⚡️💡 <b>Київщина: графік відключення світла</b>\n` +
-        `📆 ${logDateText}\n\n` +
-        `<a href="https://t.me/huyova_bila_tserkva">✅ Хуйова Біла Церква</a> | <a href="https://t.me/xy_dmin">Прислати новину</a>`;
-
-      await bot.sendPhoto(CHAT_ID, processedImageBuffer, {
-        caption,
-        parse_mode: "HTML",
-      }, {
-        filename: `empty_schedule_${Date.now()}.jpg`, 
-        contentType: "image/jpeg"
-      });
-
-      console.log(`✅ Згенерований шаблон надіслано! Нанесено: "${ukrDateText}" та "${systemUpdateTime}"`);
-      await redis.set("dtek_hash", currentHash);
-      return;
-    }
-
-    /* ================= 🔴 КЕЙС 3: ГРАФІКИ Є (ЗВИЧАЙНА КАРТИНКА СХЕМИ) ================= */
-    console.log("🔥 Знайдено активні графіки відключень! Надсилаємо схему...");
-    
-    // Замість безумовного пошуку максимального таймстампу з масиву (який міг збити дату),
-    // використовуємо нашу вираховану логічну дату finalLogDate.
-    const caption =
-      `⚡️💡 <b>Київщина: графік відключення світла</b>\n` +
-      `📆 ${logDateText}\n\n` +
-      `🕒 <i>Оновлено: ${rawUpdate || systemUpdateTime}</i>\n\n` +
-      `<a href="https://t.me/huyova_bila_tserkva">✅ Хуйова Біла Церква</a> | <a href="https://t.me/xy_dmin">Прислати новину</a>`;
-
-    const imageUrl = `${TOMORROW_IMAGE_URL}?t=${Date.now()}`;
-
-    await bot.sendPhoto(CHAT_ID, imageUrl, {
-      caption,
-      parse_mode: "HTML",
-    });
-
-    console.log("✅ Графік відключень відправлено в канал");
-    await redis.set("dtek_hash", currentHash);
-
+    await redis.set("dtek:hash", currentHash);
   } catch (err) {
-    console.error("❌ Помилка в checkSchedule:", err.message);
+    console.error("❌ Помилка:", err.message);
   } finally {
     isRunning = false;
   }
 }
 
-/* ================= LOOP ================= */
+/* ================= STARTUP ================= */
 
-// Запуск кожну хвилину для стабільності роботи перед GitHub API
-setInterval(checkSchedule, 60000); 
+const pollInterval = setInterval(checkSchedule, POLL_INTERVAL_MS);
 checkSchedule();
 
-/* ================= SERVER ================= */
+function shutdown() {
+  console.log("🛑 Shutting down...");
+  clearInterval(pollInterval);
+  process.exit(0);
+}
+
+process.on("SIGTERM", shutdown);
+process.on("SIGINT", shutdown);
+
+// ==== Express (для Render)
 const app = express();
-app.get("/", (req, res) => res.send("Bot is running 🚀"));
+app.get("/", (req, res) => {
+    res.send("Бот працює 🚀");
+});
+
 const PORT = process.env.PORT || 3000;
-app.listen(PORT, () => console.log(`🚀 Server started on port ${PORT}`));
+app.listen(PORT, () => console.log(`Сервер запущено на порту ${PORT}`));
