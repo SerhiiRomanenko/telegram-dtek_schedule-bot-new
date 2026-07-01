@@ -282,11 +282,14 @@ async function checkSchedule() {
 /* ================= LOOP ================= */
 
 // Запуск кожну хвилину для стабільності роботи перед GitHub API
-setInterval(checkSchedule, 5000); 
+setInterval(checkSchedule, 30000); 
 checkSchedule();
 
-/* ================= SERVER ================= */
+// ==== Express (для Render)
 const app = express();
-app.get("/", (req, res) => res.send("Bot is running 🚀"));
+app.get("/", (req, res) => {
+  res.send("Бот працює 🚀");
+});
+
 const PORT = process.env.PORT || 3000;
-app.listen(PORT, () => console.log(`🚀 Server started on port ${PORT}`));
+app.listen(PORT, () => console.log(`Сервер запущено на порту ${PORT}`));
