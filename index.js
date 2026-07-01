@@ -282,7 +282,7 @@ async function checkSchedule() {
 /* ================= LOOP ================= */
 
 // Запуск кожну хвилину для стабільності роботи перед GitHub API
-setInterval(checkSchedule, 5000); 
+setInterval(checkSchedule, 60000); 
 checkSchedule();
 
 /* ================= SERVER ================= */
